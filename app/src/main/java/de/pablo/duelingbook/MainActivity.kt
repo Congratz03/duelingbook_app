@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
+import android.view.inputmethod.InputMethodManager
+import android.webkit.JavascriptInterface
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -72,6 +74,11 @@ class MainActivity : AppCompatActivity() {
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         }
 
+        // Brücke für touch.js: Tastatur gezielt öffnen/schließen
+        webView.isFocusable = true
+        webView.isFocusableInTouchMode = true
+        webView.addJavascriptInterface(KeyboardBridge(), "DBApp")
+
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
             setAcceptThirdPartyCookies(webView, true)
@@ -124,6 +131,26 @@ class MainActivity : AppCompatActivity() {
             webView.restoreState(savedInstanceState)
         } else {
             webView.loadUrl(START_URL)
+        }
+    }
+
+    inner class KeyboardBridge {
+        private val imm get() = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+
+        @JavascriptInterface
+        fun showKeyboard() {
+            webView.post {
+                webView.requestFocus()
+                imm.showSoftInput(webView, InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
+
+        @JavascriptInterface
+        fun hideKeyboard() {
+            webView.post {
+                imm.hideSoftInputFromWindow(webView.windowToken, 0)
+                goImmersive()
+            }
         }
     }
 

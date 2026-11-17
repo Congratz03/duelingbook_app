@@ -11,16 +11,27 @@ android {
         applicationId = "de.pablo.duelingbook"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
+    }
+
+    // Fester Schlüssel, damit neue Versionen als Update installierbar sind
+    signingConfigs {
+        create("fixed") {
+            storeFile = file("duelingbook.keystore")
+            storePassword = "duelingbook"
+            keyAlias = "duelingbook"
+            keyPassword = "duelingbook"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("fixed")
+        }
         release {
             isMinifyEnabled = false
-            // Für private Nutzung mit dem Debug-Schlüssel signieren,
-            // damit die Release-APK direkt installierbar ist.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("fixed")
         }
     }
 

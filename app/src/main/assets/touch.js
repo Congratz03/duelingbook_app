@@ -277,4 +277,50 @@
 
   // Kontextmenü des Systems beim langen Drücken unterdrücken
   document.addEventListener('contextmenu', function (e) { e.preventDefault(); }, true);
+
+  // ---------------------------------------------------------------
+  // 4) S-Pen-Knopf = "Abbrechen": offenes Aktionsmenü schließen
+  //
+  //    Wird von der App aufgerufen, wenn der Stift mit gedrücktem
+  //    Seitenknopf tippt. Schickt Escape und einen Klick auf eine
+  //    leere Hintergrundfläche – so schließen sich Auswahlmenüs
+  //    (z. B. bei verdeckten Karten), ohne etwas anderes auszulösen.
+  // ---------------------------------------------------------------
+  function findBackgroundPoint() {
+    var w = window.innerWidth, h = window.innerHeight;
+    var best = null, bestArea = 0;
+    for (var gx = 1; gx <= 9; gx++) {
+      for (var gy = 1; gy <= 5; gy++) {
+        var x = (w * gx) / 10, y = (h * gy) / 6;
+        var el = document.elementFromPoint(x, y);
+        if (!el || isClickable(el) || isEditable(el)) continue;
+        var r = el.getBoundingClientRect();
+        var area = r.width * r.height;
+        if (area > bestArea) { bestArea = area; best = { el: el, x: x, y: y }; }
+      }
+    }
+    return best;
+  }
+
+  window.__dbPenButton = function () {
+    var a = document.activeElement || document.body;
+    ['keydown', 'keyup'].forEach(function (type) {
+      a.dispatchEvent(new KeyboardEvent(type, {
+        key: 'Escape', code: 'Escape', keyCode: 27, which: 27,
+        bubbles: true, cancelable: true
+      }));
+    });
+    if (isEditable(document.activeElement)) document.activeElement.blur();
+
+    var bg = findBackgroundPoint();
+    if (bg) {
+      fire(bg.el, 'mousedown', bg.x, bg.y);
+      fire(bg.el, 'mouseup', bg.x, bg.y);
+      fire(bg.el, 'click', bg.x, bg.y);
+    } else {
+      fire(document.body, 'mousedown', 0, 0);
+      fire(document.body, 'mouseup', 0, 0);
+      fire(document.body, 'click', 0, 0);
+    }
+  };
 })();

@@ -5,6 +5,8 @@ import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
@@ -79,6 +81,8 @@ class MainActivity : AppCompatActivity() {
         webView.isFocusableInTouchMode = true
         webView.addJavascriptInterface(KeyboardBridge(), "DBApp")
 
+        setupPenButton()
+
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
             setAcceptThirdPartyCookies(webView, true)
@@ -131,6 +135,69 @@ class MainActivity : AppCompatActivity() {
             webView.restoreState(savedInstanceState)
         } else {
             webView.loadUrl(START_URL)
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // S-Pen-Seitenknopf = "Abbrechen" (offenes Menü schließen)
+    //
+    // Knopf gedrückt halten + mit dem Stift aufs Display tippen.
+    // Funktioniert auch, wenn der Stift sich als "Radierer" meldet,
+    // und beim Drücken des Knopfes, während der Stift über dem
+    // Display schwebt (sofern Samsung den Klick nicht abfängt).
+    // ------------------------------------------------------------------
+    private var penGestureActive = false
+    private var lastPenAction = 0L
+
+    private fun isPenButton(ev: MotionEvent): Boolean {
+        val tool = ev.getToolType(ev.actionIndex)
+        if (tool == MotionEvent.TOOL_TYPE_ERASER) return true
+        if (tool != MotionEvent.TOOL_TYPE_STYLUS) return false
+        val mask = MotionEvent.BUTTON_STYLUS_PRIMARY or
+            MotionEvent.BUTTON_STYLUS_SECONDARY or
+            MotionEvent.BUTTON_SECONDARY
+        return (ev.buttonState and mask) != 0
+    }
+
+    private fun penButtonAction() {
+        val now = System.currentTimeMillis()
+        if (now - lastPenAction < 300) return // doppeltes Auslösen vermeiden
+        lastPenAction = now
+        webView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        webView.evaluateJavascript("window.__dbPenButton && window.__dbPenButton()", null)
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupPenButton() {
+        // Tippen mit gedrücktem Knopf: Ereignis abfangen, nicht an die Seite geben
+        webView.setOnTouchListener { _, ev ->
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    penGestureActive = isPenButton(ev)
+                    if (penGestureActive) penButtonAction()
+                    penGestureActive
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val consumed = penGestureActive
+                    penGestureActive = false
+                    consumed
+                }
+                else -> penGestureActive
+            }
+        }
+
+        // Knopf drücken, während der Stift über dem Display schwebt
+        webView.setOnGenericMotionListener { _, ev ->
+            if (ev.actionMasked == MotionEvent.ACTION_BUTTON_PRESS &&
+                ev.getToolType(0).let {
+                    it == MotionEvent.TOOL_TYPE_STYLUS || it == MotionEvent.TOOL_TYPE_ERASER
+                }
+            ) {
+                penButtonAction()
+                true
+            } else {
+                false
+            }
         }
     }
 

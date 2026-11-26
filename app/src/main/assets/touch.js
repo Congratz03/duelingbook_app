@@ -194,11 +194,81 @@
     return null;
   }
 
+  // Nur ein Tipp auf echten Hintergrund gilt als "daneben":
+  // große, nicht klickbare Fläche (Body, Spielfeld, Fenster-Hintergrund).
+  // Kleine Elemente (z. B. das X-Bild) werden nie umgeleitet.
+  function isBackground(el) {
+    if (!el || el === document.body || el === document.documentElement) return true;
+    if (isClickable(el)) return false;
+    var r = el.getBoundingClientRect();
+    return r.width * r.height > window.innerWidth * window.innerHeight * 0.25;
+  }
+
+  // Nach jedem Schritt das Element neu ermitteln: Duelingbook tauscht
+  // Button-Grafiken beim Drüberfahren/Drücken aus, ein Klick auf die
+  // alte (entfernte) Grafik käme sonst nirgends an.
+  function current(el, x, y) {
+    if (el && el.isConnected) return el;
+    return document.elementFromPoint(x, y) || el;
+  }
+
   function clickAt(el, x, y) {
     fire(el, 'mouseover', x, y);
+    el = current(el, x, y);
     fire(el, 'mousedown', x, y);
+    el = current(el, x, y);
     fire(el, 'mouseup', x, y);
+    el = current(el, x, y);
     fire(el, 'click', x, y);
+  }
+
+  // ---------------------------------------------------------------
+  // Klick-Garantie
+  //
+  //    Android verwirft Klicks, wenn (a) der Stift/Finger beim Tippen
+  //    minimal verrutscht (wird als Wischen gewertet) oder (b) die Seite
+  //    zwischen Drücken und Loslassen das Element austauscht (Duelingbook
+  //    wechselt beim Drüberfahren die Button-Grafik). Dann kommt kein
+  //    "click" an und man muss 6-7x aufs X tippen.
+  //    Lösung: Nach jedem kurzen Tipp prüfen, ob ein Klick ankam. Wenn
+  //    nicht, wird er gezielt an der Tipp-Stelle nachgeliefert.
+  // ---------------------------------------------------------------
+  var TAP_SLOP = 20;       // so weit darf der Stift verrutschen (CSS-px)
+  var CLICK_WAIT_MS = 160; // so lange auf den echten Klick warten
+  var tapState = null;
+
+  function resetTapState() {
+    tapState = { down: null, up: null, click: false };
+  }
+  resetTapState();
+
+  window.addEventListener('mousedown', function (e) { tapState.down = e.target; }, true);
+  window.addEventListener('mouseup', function (e) { tapState.up = e.target; }, true);
+  window.addEventListener('click', function () { tapState.click = true; }, true);
+
+  function related(a, b) {
+    if (!a || !b) return false;
+    if (a === b || a.contains(b) || b.contains(a)) return true;
+    return a.parentElement && a.parentElement === b.parentElement;
+  }
+
+  function ensureClick(x, y) {
+    var st = tapState;
+    setTimeout(function () {
+      if (st !== tapState || st.click) return; // echter Klick kam an
+      var el = document.elementFromPoint(x, y);
+      if (!el || isEditable(el)) return;
+
+      if (!st.down && !st.up) {
+        // Fall (a): Android hat den ganzen Klick verworfen
+        clickAt(el, x, y);
+      } else if (st.down && st.up && st.down !== st.up &&
+                 (!st.down.isConnected || related(st.down, st.up))) {
+        // Fall (b): Button-Grafik wurde ausgetauscht -> nur Klick fehlt.
+        // (Ist stattdessen z. B. ein Menü aufgegangen, wird NICHT geklickt.)
+        fire(el, 'click', x, y);
+      }
+    }, CLICK_WAIT_MS);
   }
 
   // ---------------------------------------------------------------
@@ -210,6 +280,7 @@
     var t = e.touches[0];
     startX = t.clientX; startY = t.clientY; startT = Date.now();
     held = false; moved = false;
+    resetTapState();
 
     tappedField = editableAt(e.target);
     if (tappedField) return; // Eingabefelder: kein Halten/Hover
@@ -242,7 +313,10 @@
       held = false;
       return;
     }
-    if (moved || e.changedTouches.length !== 1) return;
+    if (e.changedTouches.length !== 1) return;
+    var end = e.changedTouches[0];
+    var dist = Math.hypot(end.clientX - startX, end.clientY - startY);
+    if (dist > TAP_SLOP) return; // echtes Wischen/Scrollen
 
     // Direkter Tipp auf ein Eingabefeld -> Tastatur sicher öffnen
     if (tappedField) {
@@ -260,13 +334,17 @@
     // Kleiner Button knapp verfehlt? -> den nächstgelegenen anklicken
     var t = e.changedTouches[0];
     var under = document.elementFromPoint(t.clientX, t.clientY);
-    if (under && !isClickable(under)) {
+    if (under && isBackground(under)) {
       var near = findNearbyButton(t.clientX, t.clientY);
       if (near) {
         e.preventDefault(); // Original-Klick ins Leere unterdrücken
         clickAt(near.el, near.x, near.y);
+        return;
       }
     }
+
+    // Sicherstellen, dass der Tipp wirklich als Klick ankommt
+    ensureClick(t.clientX, t.clientY);
   }, { passive: false, capture: true });
 
   document.addEventListener('touchcancel', function () {
